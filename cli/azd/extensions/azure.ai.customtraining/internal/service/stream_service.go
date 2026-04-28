@@ -108,7 +108,7 @@ func (s *StreamService) StreamJobLogs(ctx context.Context, jobName string) (*Str
 			}
 
 			if terminalStates[jobStatus] {
-				if trackingEndpoint != "" {
+				if trackingEndpoint != "" && pollCount > 0 {
 					s.flushLogs(ctx, trackingEndpoint, jobName, processedLines)
 				}
 				return &StreamResult{
