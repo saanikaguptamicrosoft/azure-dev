@@ -75,6 +75,7 @@ func (s *StreamService) StreamJobLogs(ctx context.Context, jobName string) (*Str
 	consecutiveErrs := 0
 	trackingEndpoint := ""
 	firstPoll := true
+	multiFile := false // latches to true once >1 file is seen
 
 	for {
 		if ctx.Err() != nil {
@@ -102,7 +103,7 @@ func (s *StreamService) StreamJobLogs(ctx context.Context, jobName string) (*Str
 
 		if terminalStates[jobStatus] {
 			if trackingEndpoint != "" && !firstPoll {
-				s.flushLogs(ctx, trackingEndpoint, jobName, processedLines)
+				s.flushLogs(ctx, trackingEndpoint, jobName, processedLines, multiFile)
 			}
 			return &StreamResult{
 				JobName:   jobName,
@@ -120,7 +121,11 @@ func (s *StreamService) StreamJobLogs(ctx context.Context, jobName string) (*Str
 
 		// Stream logs if tracking endpoint is available
 		if trackingEndpoint != "" {
-			_, err := s.pollAndPrintLogs(ctx, trackingEndpoint, jobName, processedLines)
+			var newMultiFile bool
+			_, newMultiFile, err = s.pollAndPrintLogs(ctx, trackingEndpoint, jobName, processedLines, multiFile)
+			if newMultiFile {
+				multiFile = true
+			}
 			if err != nil {
 				consecutiveErrs++
 				if consecutiveErrs >= maxConsecutiveErrs {
@@ -179,24 +184,39 @@ func filterLogFiles(logFiles map[string]string) []string {
 	return matched
 }
 
+// printFileHeader prints a visual separator for a log file, matching the Azure ML SDK style.
+func printFileHeader(fileName string) {
+	fmt.Println()
+	fmt.Printf("Streaming %s\n", fileName)
+	fmt.Println(strings.Repeat("=", len("Streaming ")+len(fileName)))
+	fmt.Println()
+}
+
 // pollAndPrintLogs fetches run history details and prints only new log lines.
+// Returns whether new content was printed and whether multiple files were seen.
 func (s *StreamService) pollAndPrintLogs(
 	ctx context.Context,
 	trackingEndpoint string,
 	jobName string,
 	processedLines map[string]int,
-) (bool, error) {
+	multiFile bool,
+) (bool, bool, error) {
 	details, err := s.client.GetRunHistoryDetails(ctx, trackingEndpoint, jobName)
 	if err != nil {
-		return false, err
+		return false, multiFile, err
 	}
 	if details == nil || len(details.LogFiles) == 0 {
-		return false, nil
+		return false, multiFile, nil
 	}
 
 	fileNames := filterLogFiles(details.LogFiles)
 	if len(fileNames) == 0 {
-		return false, nil
+		return false, multiFile, nil
+	}
+
+	// Latch multiFile once we see >1 file — formatting stays consistent thereafter
+	if len(fileNames) > 1 {
+		multiFile = true
 	}
 
 	hasNewContent := false
@@ -219,6 +239,11 @@ func (s *StreamService) pollAndPrintLogs(
 			continue
 		}
 
+		// Print file header: always on first encounter, or on every switch for multi-file jobs
+		if previousLines == 0 || multiFile {
+			printFileHeader(fileName)
+		}
+
 		for _, line := range lines[previousLines:] {
 			fmt.Println(line)
 		}
@@ -226,7 +251,7 @@ func (s *StreamService) pollAndPrintLogs(
 		processedLines[fileName] = len(lines)
 	}
 
-	return hasNewContent, nil
+	return hasNewContent, multiFile, nil
 }
 
 // flushLogs does a final poll to capture any remaining log output.
@@ -235,8 +260,9 @@ func (s *StreamService) flushLogs(
 	trackingEndpoint string,
 	jobName string,
 	processedLines map[string]int,
+	multiFile bool,
 ) {
-	_, _ = s.pollAndPrintLogs(ctx, trackingEndpoint, jobName, processedLines)
+	_, _, _ = s.pollAndPrintLogs(ctx, trackingEndpoint, jobName, processedLines, multiFile)
 }
 
 // extractServiceEndpoint extracts the endpoint URL from the job services map.
