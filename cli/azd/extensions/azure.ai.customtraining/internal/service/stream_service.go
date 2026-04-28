@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -23,6 +24,14 @@ type StreamService struct {
 func NewStreamService(apiClient *client.Client) *StreamService {
 	return &StreamService{client: apiClient}
 }
+
+// Log file patterns matching the Azure ML SDK behavior.
+// Primary: Common Runtime user logs.
+// Fallback: Legacy azureml-logs for older compute targets.
+var (
+	commonRuntimeLogPattern = regexp.MustCompile(`user_logs/std_log[\D]*[0]*(?:_ps)?\.txt`)
+	legacyLogPattern        = regexp.MustCompile(`azureml-logs/[\d]{2}.+\.txt`)
+)
 
 // terminalStates are job statuses that indicate the job has finished.
 var terminalStates = map[string]bool{
@@ -53,16 +62,17 @@ type StreamResult struct {
 
 // StreamJobLogs polls the job and streams log output until the job reaches a terminal state.
 func (s *StreamService) StreamJobLogs(ctx context.Context, jobName string) (*StreamResult, error) {
-	fmt.Fprintf(os.Stderr, "Stream logs for job %s...\n\n", jobName)
+	fmt.Fprintf(os.Stderr, "Streaming logs for job: %s\n\n", jobName)
 
-	offsets := make(map[string]int64)
+	// Line-count tracking per file, matching the Azure ML SDK approach.
+	// Each poll downloads full content, skips already-printed lines, prints the rest.
+	processedLines := make(map[string]int)
 
 	const (
 		initialInterval    = 2 * time.Second
 		maxInterval        = 5 * time.Second
 		jobCheckFrequency  = 10
 		maxConsecutiveErrs = 3
-		initialTailBytes   = int64(8192)
 	)
 
 	pollInterval := initialInterval
@@ -99,7 +109,7 @@ func (s *StreamService) StreamJobLogs(ctx context.Context, jobName string) (*Str
 
 			if terminalStates[jobStatus] {
 				if trackingEndpoint != "" {
-					s.flushLogs(ctx, trackingEndpoint, jobName, offsets, initialTailBytes)
+					s.flushLogs(ctx, trackingEndpoint, jobName, processedLines)
 				}
 				return &StreamResult{
 					JobName:   jobName,
@@ -117,7 +127,7 @@ func (s *StreamService) StreamJobLogs(ctx context.Context, jobName string) (*Str
 		}
 
 		if trackingEndpoint != "" {
-			hasNewContent, err := s.pollAndPrintLogs(ctx, trackingEndpoint, jobName, offsets, initialTailBytes)
+			hasNewContent, err := s.pollAndPrintLogs(ctx, trackingEndpoint, jobName, processedLines)
 			if err != nil {
 				consecutiveErrs++
 				if consecutiveErrs >= maxConsecutiveErrs {
@@ -141,13 +151,34 @@ func (s *StreamService) StreamJobLogs(ctx context.Context, jobName string) (*Str
 	}
 }
 
-// pollAndPrintLogs fetches run history details and streams new log content.
+// filterLogFiles selects streamable log files from the history details.
+// Matches Common Runtime user logs first; falls back to legacy azureml-logs.
+// Returns matched file names sorted alphabetically.
+func filterLogFiles(logFiles map[string]string) []string {
+	var matched []string
+	for name := range logFiles {
+		if commonRuntimeLogPattern.MatchString(name) {
+			matched = append(matched, name)
+		}
+	}
+	if len(matched) == 0 {
+		// Fallback to legacy log pattern for older compute targets
+		for name := range logFiles {
+			if legacyLogPattern.MatchString(name) {
+				matched = append(matched, name)
+			}
+		}
+	}
+	sort.Strings(matched)
+	return matched
+}
+
+// pollAndPrintLogs fetches run history details and prints only new log lines.
 func (s *StreamService) pollAndPrintLogs(
 	ctx context.Context,
 	trackingEndpoint string,
 	jobName string,
-	offsets map[string]int64,
-	initialTailBytes int64,
+	processedLines map[string]int,
 ) (bool, error) {
 	details, err := s.client.GetRunHistoryDetails(ctx, trackingEndpoint, jobName)
 	if err != nil {
@@ -157,66 +188,39 @@ func (s *StreamService) pollAndPrintLogs(
 		return false, nil
 	}
 
-	fileNames := make([]string, 0, len(details.LogFiles))
-	for name := range details.LogFiles {
-		fileNames = append(fileNames, name)
+	fileNames := filterLogFiles(details.LogFiles)
+	if len(fileNames) == 0 {
+		return false, nil
 	}
-	sort.Strings(fileNames)
 
 	hasNewContent := false
 	for _, fileName := range fileNames {
 		sasURI := details.LogFiles[fileName]
 
-		offset, exists := offsets[fileName]
-		if !exists {
-			offset = -initialTailBytes
-		}
-
-		content, bytesRead, err := s.fetchLogChunk(ctx, sasURI, offset)
-		if err != nil {
+		content, _, err := s.client.GetLogContent(ctx, sasURI, 0)
+		if err != nil || content == "" {
 			continue
 		}
 
-		if bytesRead > 0 && content != "" {
-			fmt.Printf("\n--- %s ---\n", fileName)
-			fmt.Print(content)
-			if !strings.HasSuffix(content, "\n") {
-				fmt.Println()
-			}
-			hasNewContent = true
-
-			if offset < 0 {
-				offsets[fileName] = bytesRead
-			} else {
-				offsets[fileName] = offset + bytesRead
-			}
-		} else if !exists {
-			offsets[fileName] = 0
+		lines := strings.Split(content, "\n")
+		// Remove trailing empty element from final newline
+		if len(lines) > 0 && lines[len(lines)-1] == "" {
+			lines = lines[:len(lines)-1]
 		}
+
+		previousLines := processedLines[fileName]
+		if len(lines) <= previousLines {
+			continue
+		}
+
+		for _, line := range lines[previousLines:] {
+			fmt.Println(line)
+		}
+		hasNewContent = true
+		processedLines[fileName] = len(lines)
 	}
 
 	return hasNewContent, nil
-}
-
-// fetchLogChunk retrieves log content, handling initial tail (negative offset).
-func (s *StreamService) fetchLogChunk(ctx context.Context, sasURI string, offset int64) (string, int64, error) {
-	if offset < 0 {
-		content, bytesRead, err := s.client.GetLogContent(ctx, sasURI, 0)
-		if err != nil {
-			return "", 0, err
-		}
-		tailSize := -offset
-		if int64(len(content)) > tailSize {
-			trimmed := content[int64(len(content))-tailSize:]
-			if idx := strings.Index(trimmed, "\n"); idx >= 0 {
-				trimmed = trimmed[idx+1:]
-			}
-			return trimmed, bytesRead, nil
-		}
-		return content, bytesRead, nil
-	}
-
-	return s.client.GetLogContent(ctx, sasURI, offset)
 }
 
 // flushLogs does a final poll to capture any remaining log output.
@@ -224,10 +228,9 @@ func (s *StreamService) flushLogs(
 	ctx context.Context,
 	trackingEndpoint string,
 	jobName string,
-	offsets map[string]int64,
-	initialTailBytes int64,
+	processedLines map[string]int,
 ) {
-	_, _ = s.pollAndPrintLogs(ctx, trackingEndpoint, jobName, offsets, initialTailBytes)
+	_, _ = s.pollAndPrintLogs(ctx, trackingEndpoint, jobName, processedLines)
 }
 
 // extractServiceEndpoint extracts the endpoint URL from the job services map.

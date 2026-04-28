@@ -10,17 +10,14 @@ import (
 	"net/http"
 )
 
-// GetLogContent fetches log file content from a SAS URI starting at the given byte offset.
-// Returns the content and the total number of bytes read (to update the offset).
+// GetLogContent fetches log file content from a SAS URI.
+// Downloads the full content on each call (no Range header). The caller tracks
+// which lines have already been printed, matching the Azure ML SDK approach.
 // No authentication is needed since the URL contains a SAS token.
 func (c *Client) GetLogContent(ctx context.Context, sasURI string, offset int64) (string, int64, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sasURI, nil)
 	if err != nil {
 		return "", 0, fmt.Errorf("failed to create log request: %w", err)
-	}
-
-	if offset > 0 {
-		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
 	}
 
 	resp, err := c.httpClient.Do(req)
@@ -29,12 +26,7 @@ func (c *Client) GetLogContent(ctx context.Context, sasURI string, offset int64)
 	}
 	defer resp.Body.Close()
 
-	// 416 Range Not Satisfiable means no new content beyond the offset
-	if resp.StatusCode == http.StatusRequestedRangeNotSatisfiable {
-		return "", 0, nil
-	}
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
+	if resp.StatusCode != http.StatusOK {
 		return "", 0, fmt.Errorf("log request returned status %d", resp.StatusCode)
 	}
 
