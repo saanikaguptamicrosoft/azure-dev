@@ -203,7 +203,7 @@ func (s *StreamService) pollAndPrintLogs(
 	for _, fileName := range fileNames {
 		sasURI := details.LogFiles[fileName]
 
-		content, _, err := s.client.GetLogContent(ctx, sasURI, 0)
+		content, _, err := s.client.GetBlobContent(ctx, sasURI)
 		if err != nil || content == "" {
 			continue
 		}
