@@ -6,6 +6,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"regexp"
 	"sort"
@@ -68,66 +69,58 @@ func (s *StreamService) StreamJobLogs(ctx context.Context, jobName string) (*Str
 	// Each poll downloads full content, skips already-printed lines, prints the rest.
 	processedLines := make(map[string]int)
 
-	const (
-		initialInterval    = 2 * time.Second
-		maxInterval        = 5 * time.Second
-		jobCheckFrequency  = 10
-		maxConsecutiveErrs = 3
-	)
+	const maxConsecutiveErrs = 3
 
-	pollInterval := initialInterval
-	pollCount := 0
+	startTime := time.Now()
 	consecutiveErrs := 0
 	trackingEndpoint := ""
+	firstPoll := true
 
 	for {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
 
-		var jobStatus string
-		var studioURL string
-		if pollCount%jobCheckFrequency == 0 {
-			job, err := s.client.GetJob(ctx, jobName)
-			if err != nil {
-				consecutiveErrs++
-				if consecutiveErrs >= maxConsecutiveErrs {
-					return nil, fmt.Errorf("failed to get job status after %d retries: %w", maxConsecutiveErrs, err)
-				}
-				time.Sleep(pollInterval)
-				pollCount++
-				continue
+		// Check job status every poll
+		job, err := s.client.GetJob(ctx, jobName)
+		if err != nil {
+			consecutiveErrs++
+			if consecutiveErrs >= maxConsecutiveErrs {
+				return nil, fmt.Errorf("failed to get job status after %d retries: %w", maxConsecutiveErrs, err)
 			}
-			consecutiveErrs = 0
+			time.Sleep(pollInterval(startTime))
+			continue
+		}
+		consecutiveErrs = 0
 
-			jobStatus = job.Properties.Status
-			studioURL = extractServiceEndpoint(job.Properties.Services, "Studio")
+		jobStatus := job.Properties.Status
+		studioURL := extractServiceEndpoint(job.Properties.Services, "Studio")
 
-			if trackingEndpoint == "" {
-				trackingEndpoint = extractServiceEndpoint(job.Properties.Services, "Tracking")
-			}
-
-			if terminalStates[jobStatus] {
-				if trackingEndpoint != "" && pollCount > 0 {
-					s.flushLogs(ctx, trackingEndpoint, jobName, processedLines)
-				}
-				return &StreamResult{
-					JobName:   jobName,
-					Status:    jobStatus,
-					StudioURL: studioURL,
-				}, nil
-			}
-
-			if !activeStates[jobStatus] {
-				fmt.Fprintf(os.Stderr, "Job status: %s, waiting...\n", jobStatus)
-				time.Sleep(pollInterval)
-				pollCount++
-				continue
-			}
+		if trackingEndpoint == "" {
+			trackingEndpoint = extractServiceEndpoint(job.Properties.Services, "Tracking")
 		}
 
+		if terminalStates[jobStatus] {
+			if trackingEndpoint != "" && !firstPoll {
+				s.flushLogs(ctx, trackingEndpoint, jobName, processedLines)
+			}
+			return &StreamResult{
+				JobName:   jobName,
+				Status:    jobStatus,
+				StudioURL: studioURL,
+			}, nil
+		}
+
+		if !activeStates[jobStatus] {
+			fmt.Fprintf(os.Stderr, "Job status: %s, waiting...\n", jobStatus)
+			time.Sleep(pollInterval(startTime))
+			firstPoll = false
+			continue
+		}
+
+		// Stream logs if tracking endpoint is available
 		if trackingEndpoint != "" {
-			hasNewContent, err := s.pollAndPrintLogs(ctx, trackingEndpoint, jobName, processedLines)
+			_, err := s.pollAndPrintLogs(ctx, trackingEndpoint, jobName, processedLines)
 			if err != nil {
 				consecutiveErrs++
 				if consecutiveErrs >= maxConsecutiveErrs {
@@ -135,20 +128,33 @@ func (s *StreamService) StreamJobLogs(ctx context.Context, jobName string) (*Str
 				}
 			} else {
 				consecutiveErrs = 0
-				if hasNewContent {
-					pollInterval = initialInterval
-				} else {
-					pollInterval = min(pollInterval+time.Second, maxInterval)
-				}
 			}
 		} else {
 			fmt.Fprintf(os.Stderr, "Waiting for job to initialize...\n")
-			pollInterval = maxInterval
 		}
 
-		pollCount++
-		time.Sleep(pollInterval)
+		firstPoll = false
+		time.Sleep(pollInterval(startTime))
 	}
+}
+
+// pollInterval returns the polling interval using a sigmoid curve from 2s → 60s
+// based on elapsed time since streaming started. Matches the Azure ML SDK approach.
+//
+//	duration = MAX / (1.0 + 100 * exp(-elapsed_seconds / 20.0))
+//	return max(MIN, duration)
+func pollInterval(startTime time.Time) time.Duration {
+	const (
+		minInterval = 2 * time.Second
+		maxInterval = 60 * time.Second
+	)
+	elapsed := time.Since(startTime).Seconds()
+	durationSec := 60.0 / (1.0 + 100.0*math.Exp(-elapsed/20.0))
+	duration := time.Duration(durationSec * float64(time.Second))
+	if duration < minInterval {
+		return minInterval
+	}
+	return duration
 }
 
 // filterLogFiles selects streamable log files from the history details.
