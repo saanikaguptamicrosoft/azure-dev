@@ -5,25 +5,25 @@ package models
 
 // RunHistory represents the run history details for a job.
 type RunHistory struct {
-	RunID           string            `json:"runId,omitempty"`
-	RunUUID         string            `json:"runUuid,omitempty"`
-	RootRunID       string            `json:"rootRunId,omitempty"`
-	Status          string            `json:"status,omitempty"`
-	StartTimeUTC    string            `json:"startTimeUtc,omitempty"`
-	EndTimeUTC      string            `json:"endTimeUtc,omitempty"`
-	Duration        string            `json:"duration,omitempty"`
-	ComputeDuration string            `json:"computeDuration,omitempty"`
-	CreatedUTC      string            `json:"createdUtc,omitempty"`
-	LastModifiedUTC string            `json:"lastModifiedUtc,omitempty"`
-	DisplayName     string            `json:"displayName,omitempty"`
-	Description     string            `json:"description,omitempty"`
-	Target          string            `json:"target,omitempty"`
-	RunType         string            `json:"runType,omitempty"`
-	Error           *RunHistoryError  `json:"error,omitempty"`
-	CreatedBy       *RunHistoryUser   `json:"createdBy,omitempty"`
-	Compute         *RunHistoryCompute `json:"compute,omitempty"`
-	Properties      map[string]string `json:"properties,omitempty"`
-	Tags            map[string]string `json:"tags,omitempty"`
+	RunID           string                     `json:"runId,omitempty"`
+	RunUUID         string                     `json:"runUuid,omitempty"`
+	RootRunID       string                     `json:"rootRunId,omitempty"`
+	Status          string                     `json:"status,omitempty"`
+	StartTimeUTC    string                     `json:"startTimeUtc,omitempty"`
+	EndTimeUTC      string                     `json:"endTimeUtc,omitempty"`
+	Duration        string                     `json:"duration,omitempty"`
+	ComputeDuration string                     `json:"computeDuration,omitempty"`
+	CreatedUTC      string                     `json:"createdUtc,omitempty"`
+	LastModifiedUTC string                     `json:"lastModifiedUtc,omitempty"`
+	DisplayName     string                     `json:"displayName,omitempty"`
+	Description     string                     `json:"description,omitempty"`
+	Target          string                     `json:"target,omitempty"`
+	RunType         string                     `json:"runType,omitempty"`
+	Error           *RunHistoryError           `json:"error,omitempty"`
+	CreatedBy       *RunHistoryUser            `json:"createdBy,omitempty"`
+	Compute         *RunHistoryCompute         `json:"compute,omitempty"`
+	Properties      map[string]string          `json:"properties,omitempty"`
+	Tags            map[string]string          `json:"tags,omitempty"`
 	Inputs          map[string]RunHistoryAsset `json:"inputs,omitempty"`
 	Outputs         map[string]RunHistoryAsset `json:"outputs,omitempty"`
 }
@@ -67,4 +67,11 @@ type RunHistoryAsset struct {
 type RunHistoryList struct {
 	Value    []RunHistory `json:"value"`
 	NextLink string       `json:"nextLink,omitempty"`
+}
+
+// RunHistoryDetails represents the details response from the AML history service.
+// GET .../runs/{runId}/details
+type RunHistoryDetails struct {
+	RunID    string            `json:"runId,omitempty"`
+	LogFiles map[string]string `json:"logFiles,omitempty"` // filename → SAS URI
 }
