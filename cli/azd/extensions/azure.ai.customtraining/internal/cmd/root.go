@@ -17,7 +17,7 @@ var rootFlags rootFlagsDefinition
 func NewRootCommand() *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:           "training <command> [options]",
-		Short:         "Extension for Azure AI Foundry custom training jobs. (Preview)",
+		Short:         "Extension for Microsoft Foundry custom training jobs. (Preview)",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		CompletionOptions: cobra.CompletionOptions{

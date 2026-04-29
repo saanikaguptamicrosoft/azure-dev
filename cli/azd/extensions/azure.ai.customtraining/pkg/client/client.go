@@ -88,7 +88,9 @@ func (c *Client) doDataPlaneWithVersion(ctx context.Context, method, path, apiVe
 		reqURL += fmt.Sprintf("&%s=%s", queryParams[i], url.QueryEscape(queryParams[i+1]))
 	}
 
-	fmt.Printf("[DEBUG] %s %s\n", method, reqURL)
+	if c.debugBody {
+		fmt.Printf("[DEBUG] %s %s\n", method, reqURL)
+	}
 
 	var bodyReader io.Reader
 	if body != nil {
