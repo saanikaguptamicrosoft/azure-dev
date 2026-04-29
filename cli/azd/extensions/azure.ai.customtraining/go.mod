@@ -8,7 +8,10 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/cognitiveservices/armcognitiveservices v1.8.0
 	github.com/azure/azure-dev/cli/azd v0.0.0-20260122173819-89795b295491
 	github.com/fatih/color v1.18.0
+	github.com/google/uuid v1.6.0
+	github.com/gorilla/websocket v1.5.3
 	github.com/spf13/cobra v1.10.1
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -42,7 +45,6 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.0 // indirect
 	github.com/golobby/container/v3 v3.3.2 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/css v1.0.1 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/invopop/jsonschema v0.13.0 // indirect
@@ -87,5 +89,4 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251007200510-49b9836ed3ff // indirect
 	google.golang.org/grpc v1.76.0 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

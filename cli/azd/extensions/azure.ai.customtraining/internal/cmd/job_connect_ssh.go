@@ -1,0 +1,356 @@
+// Copyright (c) Microsoft Corporation. All rights reserved.
+// Licensed under the MIT License.
+
+package cmd
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"runtime"
+	"strings"
+	"time"
+
+	"azure.ai.customtraining/internal/utils"
+	"azure.ai.customtraining/pkg/client"
+	"azure.ai.customtraining/pkg/models"
+
+	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	"github.com/azure/azure-dev/cli/azd/pkg/azdext"
+	"github.com/gorilla/websocket"
+	"github.com/spf13/cobra"
+)
+
+// proxyEndpointPattern blocks shell metacharacters that could enable command injection
+// when the endpoint is embedded in an SSH ProxyCommand string.
+var proxyEndpointPattern = regexp.MustCompile(`^(wss?|https?)://[a-zA-Z0-9_.:/\-@%?=+,\[\]~]+$`)
+
+func newJobConnectSSHCommand() *cobra.Command {
+	var name string
+	var nodeIndex int
+	var privateKeyFile string
+
+	cmd := &cobra.Command{
+		Use:   "connect-ssh",
+		Short: "Open an SSH session to a running training job",
+		Long: "Open an SSH session to the container of a running training job.\n\n" +
+			"The job must have been submitted with an SSH service enabled in its YAML.\n\n" +
+			"Example:\n" +
+			"  azd ai training job connect-ssh --name my-job --node-index 0 --private-key-file-path ~/.ssh/id_ed25519",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctx := azdext.WithAccessToken(cmd.Context())
+
+			if name == "" {
+				return fmt.Errorf("--name is required")
+			}
+			if nodeIndex < 0 {
+				return fmt.Errorf("--node-index must be >= 0")
+			}
+
+			// Verify ssh client is available before doing any network calls
+			sshPath, err := lookupSSHBinary()
+			if err != nil {
+				return err
+			}
+
+			apiClient, err := buildJobAPIClient(ctx)
+			if err != nil {
+				return err
+			}
+
+			// 1. Get job → tracking endpoint
+			job, err := apiClient.GetJob(ctx, name)
+			if err != nil {
+				return fmt.Errorf("failed to get job %q: %w", name, err)
+			}
+
+			// Refuse early if the job is in a terminal state — the container is gone
+			// and any tunnel attempt will time out with a confusing TCP error.
+			switch strings.ToLower(job.Properties.Status) {
+			case "completed", "failed", "canceled", "cancelled", "notresponding":
+				return fmt.Errorf(
+					"job %q is in terminal state %q; SSH is only available while the job is Running",
+					name, job.Properties.Status)
+			}
+
+			trackingEndpoint := extractServiceEndpointStr(job.Properties.Services, "Tracking")
+			if trackingEndpoint == "" {
+				return fmt.Errorf("job %q has no tracking endpoint yet; ensure the job has started", name)
+			}
+
+			// 2. Get service instance for the requested node
+			instance, err := apiClient.GetServiceInstance(ctx, trackingEndpoint, name, nodeIndex)
+			if err != nil {
+				return fmt.Errorf("failed to get service instance for node %d: %w", nodeIndex, err)
+			}
+
+			// 3. Validate per the four error scenarios (mirrors AML CLI behavior)
+			proxyEndpoint, err := resolveSSHProxyEndpoint(instance, nodeIndex)
+			if err != nil {
+				return err
+			}
+
+			// 4. Validate proxy endpoint to prevent command injection in ProxyCommand
+			if !proxyEndpointPattern.MatchString(proxyEndpoint) {
+				return fmt.Errorf("proxy endpoint contains invalid characters; refusing to launch ssh")
+			}
+
+			// 5. Locate our own binary so we can use it as ProxyCommand
+			selfPath, err := os.Executable()
+			if err != nil {
+				return fmt.Errorf("failed to locate azd extension binary: %w", err)
+			}
+
+			// 6. Preflight the WebSocket tunnel so token/scope/endpoint problems
+			//    surface as clear errors instead of OpenSSH's opaque
+			//    "Connection closed by UNKNOWN port 65535".
+			if err := preflightSSHTunnel(ctx, proxyEndpoint); err != nil {
+				return fmt.Errorf("ssh tunnel preflight failed: %w", err)
+			}
+
+			// 7. Build and exec ssh
+			return runSSH(ctx, sshPath, selfPath, proxyEndpoint, privateKeyFile)
+		},
+	}
+
+	cmd.Flags().StringVar(&name, "name", "", "Job name (required)")
+	cmd.Flags().IntVar(&nodeIndex, "node-index", 0, "Node index to connect to (default 0)")
+	cmd.Flags().StringVar(&privateKeyFile, "private-key-file-path", "",
+		"Path to the SSH private key file (optional; ssh will use ~/.ssh defaults if omitted)")
+
+	return cmd
+}
+
+// lookupSSHBinary returns the path to the ssh client. On Windows, prefers the
+// 64-bit OpenSSH location to avoid the 32-bit System32 redirector issue.
+func lookupSSHBinary() (string, error) {
+	if runtime.GOOS == "windows" {
+		systemRoot := os.Getenv("SystemRoot")
+		if systemRoot != "" {
+			candidate := filepath.Join(systemRoot, "System32", "OpenSSH", "ssh.exe")
+			if _, err := os.Stat(candidate); err == nil {
+				return candidate, nil
+			}
+		}
+	}
+	path, err := exec.LookPath("ssh")
+	if err != nil {
+		return "", fmt.Errorf("ssh client not found in PATH; please install OpenSSH client")
+	}
+	return path, nil
+}
+
+// resolveSSHProxyEndpoint inspects the service instance response and returns the
+// SSH ProxyEndpoint URL, or a clear error matching one of the four failure modes.
+func resolveSSHProxyEndpoint(instance *models.ServiceInstance, nodeIndex int) (string, error) {
+	// Scenario 1: No services on the node
+	if instance == nil || len(instance.Instances) == 0 {
+		return "", fmt.Errorf(
+			"the node %d of the job does not have services; ensure that the job has services",
+			nodeIndex,
+		)
+	}
+
+	// Scenario 2: Services exist but none are SSH (job not ssh-enabled)
+	var ssh *models.ServiceInstanceDetail
+	for _, svc := range instance.Instances {
+		if svc.Type == "SSH" {
+			s := svc
+			ssh = &s
+			break
+		}
+	}
+	if ssh == nil {
+		return "", fmt.Errorf(
+			"please ensure that the job is ssh enabled on node '%d'", nodeIndex)
+	}
+
+	// Scenario 3: SSH exists but not Running
+	if ssh.Status != "Running" {
+		return "", fmt.Errorf(
+			"please ensure that ssh service at node '%d' has the status as 'Running'. The current status is '%s'",
+			nodeIndex, ssh.Status)
+	}
+
+	// Scenario 4: Running but missing ProxyEndpoint
+	if ssh.Properties == nil {
+		return "", fmt.Errorf("the ssh JobService.properties is missing ProxyEndpoint")
+	}
+	endpointAny, ok := ssh.Properties["ProxyEndpoint"]
+	if !ok {
+		return "", fmt.Errorf("the ssh JobService.properties is missing ProxyEndpoint")
+	}
+	endpoint, ok := endpointAny.(string)
+	if !ok || endpoint == "" {
+		return "", fmt.Errorf("the ssh JobService.properties is missing ProxyEndpoint")
+	}
+	return endpoint, nil
+}
+
+// runSSH constructs and executes the ssh command with our binary as ProxyCommand.
+func runSSH(ctx context.Context, sshPath, selfPath, proxyEndpoint, privateKeyFile string) error {
+	// ProxyCommand: ssh executes our binary, which opens the WebSocket and pipes stdio.
+	// Quote the binary path to handle spaces; the proxy endpoint is passed verbatim.
+	proxyCmd := fmt.Sprintf(`"%s" ai training job _ssh-proxy %s`, selfPath, proxyEndpoint)
+
+	// The destination is just a label when ProxyCommand is used (the real TCP comes from
+	// the proxy). Use a fixed alias so ssh doesn't try to parse the proxy URL as host:port.
+	const destAlias = "azureml-job"
+
+	args := []string{
+		"-o", "ProxyCommand=" + proxyCmd,
+		// Disable StrictHostKeyChecking since the proxy endpoint hostname rotates per session
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=" + os.DevNull,
+	}
+	if privateKeyFile != "" {
+		args = append(args, "-i", privateKeyFile)
+	}
+	if rootFlags.Debug {
+		args = append(args, "-vvv")
+		fmt.Fprintf(os.Stderr, "DEBUG: ssh %s azureuser@%s\n", strings.Join(args, " "), destAlias)
+	}
+	args = append(args, "azureuser@"+destAlias)
+
+	sshCmd := exec.CommandContext(ctx, sshPath, args...)
+	sshCmd.Stdin = os.Stdin
+	sshCmd.Stdout = os.Stdout
+	sshCmd.Stderr = os.Stderr
+
+	if err := sshCmd.Run(); err != nil {
+		// Pass through ssh's exit code transparently
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			fmt.Fprintln(os.Stderr,
+				"\nSSH session ended. If you saw 'Connection closed by UNKNOWN port 65535', "+
+					"the tunnel opened but sshd rejected the connection. Common causes:\n"+
+					"  - The public key in services.<name>.ssh_public_keys does not match the private key passed via --private-key-file-path\n"+
+					"  - The job container's sshd is still starting; retry in a few seconds\n"+
+					"  - The job exited before you connected (check 'azd ai training job get --name <job>')")
+			os.Exit(exitErr.ExitCode())
+		}
+		return fmt.Errorf("ssh failed: %w", err)
+	}
+	return nil
+}
+
+// preflightSSHTunnel opens a brief WebSocket connection to the SSH proxy endpoint
+// and immediately closes it. This catches token/scope/endpoint errors up front so
+// the user sees a clear message instead of OpenSSH's generic
+// "Connection closed by UNKNOWN port 65535".
+func preflightSSHTunnel(ctx context.Context, proxyEndpoint string) error {
+	wsURL := proxyEndpoint
+	if strings.HasPrefix(wsURL, "https://") {
+		wsURL = "wss://" + strings.TrimPrefix(wsURL, "https://")
+	} else if strings.HasPrefix(wsURL, "http://") {
+		wsURL = "ws://" + strings.TrimPrefix(wsURL, "http://")
+	}
+
+	azdClient, err := azdext.NewAzdClient()
+	if err != nil {
+		return fmt.Errorf("failed to create azd client: %w", err)
+	}
+	defer azdClient.Close()
+
+	cred, err := azidentity.NewAzureDeveloperCLICredential(&azidentity.AzureDeveloperCLICredentialOptions{
+		AdditionallyAllowedTenants: []string{"*"},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create azure credential: %w", err)
+	}
+
+	tmpClient, err := client.NewClient("https://placeholder.services.ai.azure.com/api/projects/p", cred)
+	if err != nil {
+		return err
+	}
+	token, err := tmpClient.GetARMToken(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to acquire management token: %w", err)
+	}
+
+	// Use an explicit dialer with a generous handshake timeout. Azure ingress on a
+	// cold path (newly-Running container) can take 30s+ to respond; the default
+	// 15s was too aggressive and surfaced as `i/o timeout`.
+	dialer := *websocket.DefaultDialer
+	dialer.HandshakeTimeout = 60 * time.Second
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+token)
+
+	dialCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+
+	conn, resp, err := dialer.DialContext(dialCtx, wsURL, header)
+	if err != nil {
+		if resp != nil {
+			return fmt.Errorf("websocket dial returned HTTP %d: %w", resp.StatusCode, err)
+		}
+		return fmt.Errorf("websocket dial failed: %w", err)
+	}
+	_ = conn.Close()
+	return nil
+}
+
+// buildJobAPIClient constructs the API client using env values, mirroring other job commands.
+func buildJobAPIClient(ctx context.Context) (*client.Client, error) {
+	azdClient, err := azdext.NewAzdClient()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create azd client: %w", err)
+	}
+	defer azdClient.Close()
+
+	envValues, err := utils.GetEnvironmentValues(ctx, azdClient)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get environment values: %w", err)
+	}
+
+	accountName := envValues[utils.EnvAzureAccountName]
+	projectName := envValues[utils.EnvAzureProjectName]
+	tenantID := envValues[utils.EnvAzureTenantID]
+
+	if accountName == "" || projectName == "" {
+		return nil, fmt.Errorf("environment not configured. Run 'azd ai training init' first")
+	}
+
+	credential, err := azidentity.NewAzureDeveloperCLICredential(&azidentity.AzureDeveloperCLICredentialOptions{
+		TenantID:                   tenantID,
+		AdditionallyAllowedTenants: []string{"*"},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create azure credential: %w", err)
+	}
+
+	endpoint := buildProjectEndpoint(accountName, projectName)
+	apiClient, err := client.NewClient(endpoint, credential)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create API client: %w", err)
+	}
+	apiClient.SetDebugBody(rootFlags.Debug)
+	return apiClient, nil
+}
+
+// extractServiceEndpointStr is a small helper to read a service endpoint URL
+// from the job services map. Duplicates the logic from the stream service to
+// avoid a cross-package dependency.
+func extractServiceEndpointStr(services map[string]interface{}, serviceName string) string {
+	if services == nil {
+		return ""
+	}
+	svc, ok := services[serviceName]
+	if !ok {
+		return ""
+	}
+	svcMap, ok := svc.(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	endpoint, ok := svcMap["endpoint"]
+	if !ok {
+		return ""
+	}
+	str, _ := endpoint.(string)
+	return str
+}
