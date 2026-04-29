@@ -186,7 +186,10 @@ func resolveSSHProxyEndpoint(instance *models.ServiceInstance, nodeIndex int) (s
 func runSSH(ctx context.Context, sshPath, selfPath, proxyEndpoint, privateKeyFile string) error {
 	// ProxyCommand: ssh executes our binary, which opens the WebSocket and pipes stdio.
 	// Quote the binary path to handle spaces; the proxy endpoint is passed verbatim.
-	proxyCmd := fmt.Sprintf(`"%s" ai training job _ssh-proxy %s`, selfPath, proxyEndpoint)
+	// The extension binary's root command is "training" (azd strips the
+	// "ai training" prefix when dispatching), so the path here is just
+	// "job _ssh-proxy <url>".
+	proxyCmd := fmt.Sprintf(`"%s" job _ssh-proxy %s`, selfPath, proxyEndpoint)
 
 	// The destination is just a label when ProxyCommand is used (the real TCP comes from
 	// the proxy). Use a fixed alias so ssh doesn't try to parse the proxy URL as host:port.
