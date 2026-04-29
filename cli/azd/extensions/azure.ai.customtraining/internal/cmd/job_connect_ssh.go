@@ -218,12 +218,18 @@ func runSSH(ctx context.Context, sshPath, selfPath, proxyEndpoint, privateKeyFil
 	if err := sshCmd.Run(); err != nil {
 		// Pass through ssh's exit code transparently
 		if exitErr, ok := err.(*exec.ExitError); ok {
-			fmt.Fprintln(os.Stderr,
-				"\nSSH session ended. If you saw 'Connection closed by UNKNOWN port 65535', "+
-					"the tunnel opened but sshd rejected the connection. Common causes:\n"+
-					"  - The public key in services.<name>.ssh_public_keys does not match the private key passed via --private-key-file-path\n"+
-					"  - The job container's sshd is still starting; retry in a few seconds\n"+
-					"  - The job exited before you connected (check 'azd ai training job get --name <job>')")
+			// ssh uses 255 for its own connection errors (auth fail,
+			// tunnel rejected, etc.). Other codes (130 for SIGINT, or
+			// the remote command's exit code) are not connection issues
+			// and shouldn't get the troubleshooting hint.
+			if exitErr.ExitCode() == 255 {
+				fmt.Fprintln(os.Stderr,
+					"\nSSH session ended. If you saw 'Connection closed by UNKNOWN port 65535', "+
+						"the tunnel opened but sshd rejected the connection. Common causes:\n"+
+						"  - The public key in services.<name>.ssh_public_keys does not match the private key passed via --private-key-file-path\n"+
+						"  - The job container's sshd is still starting; retry in a few seconds\n"+
+						"  - The job exited before you connected (check 'azd ai training job get --name <job>')")
+			}
 			os.Exit(exitErr.ExitCode())
 		}
 		return fmt.Errorf("ssh failed: %w", err)
