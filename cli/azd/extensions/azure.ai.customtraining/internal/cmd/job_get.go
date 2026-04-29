@@ -298,6 +298,9 @@ func printJobDetails(d *jobDetails) {
 		fmt.Fprintf(w, "Display Name:\t%s\n", props.DisplayName)
 	}
 	fmt.Fprintf(w, "Status:\t%s\n", statusIndicator(props.Status))
+	if props.ExperimentName != "" {
+		fmt.Fprintf(w, "Experiment:\t%s\n", props.ExperimentName)
+	}
 	if props.Description != "" {
 		fmt.Fprintf(w, "Description:\t%s\n", props.Description)
 	}

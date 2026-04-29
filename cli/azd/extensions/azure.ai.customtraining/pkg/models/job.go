@@ -15,6 +15,7 @@ type JobResource struct {
 // CommandJob represents the properties of a Foundry command job.
 type CommandJob struct {
 	JobType                   string                 `json:"jobType"`
+	ExperimentName            string                 `json:"experimentName,omitempty"`
 	DisplayName               string                 `json:"displayName,omitempty" table:"DISPLAY NAME"`
 	Description               string                 `json:"description,omitempty"`
 	Status                    string                 `json:"status,omitempty" table:"STATUS"`
