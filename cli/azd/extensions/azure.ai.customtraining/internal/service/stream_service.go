@@ -89,7 +89,9 @@ func (s *StreamService) StreamJobLogs(ctx context.Context, jobName string) (*Str
 			if consecutiveErrs >= maxConsecutiveErrs {
 				return nil, fmt.Errorf("failed to get job status after %d retries: %w", maxConsecutiveErrs, err)
 			}
-			time.Sleep(pollInterval(startTime))
+			if err := sleepWithContext(ctx, pollInterval(startTime)); err != nil {
+				return nil, err
+			}
 			continue
 		}
 		consecutiveErrs = 0
@@ -114,7 +116,9 @@ func (s *StreamService) StreamJobLogs(ctx context.Context, jobName string) (*Str
 
 		if !activeStates[jobStatus] {
 			fmt.Fprintf(os.Stderr, "Job status: %s, waiting...\n", jobStatus)
-			time.Sleep(pollInterval(startTime))
+			if err := sleepWithContext(ctx, pollInterval(startTime)); err != nil {
+				return nil, err
+			}
 			firstPoll = false
 			continue
 		}
@@ -139,7 +143,19 @@ func (s *StreamService) StreamJobLogs(ctx context.Context, jobName string) (*Str
 		}
 
 		firstPoll = false
-		time.Sleep(pollInterval(startTime))
+		if err := sleepWithContext(ctx, pollInterval(startTime)); err != nil {
+			return nil, err
+		}
+	}
+}
+
+// sleepWithContext sleeps for the given duration, returning early if ctx is cancelled.
+func sleepWithContext(ctx context.Context, d time.Duration) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(d):
+		return nil
 	}
 }
 

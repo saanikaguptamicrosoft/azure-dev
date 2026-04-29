@@ -4,6 +4,7 @@
 package service
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -76,6 +77,36 @@ func TestPollInterval_NeverBelowMinimum(t *testing.T) {
 		if got > 60*time.Second {
 			t.Errorf("pollInterval(elapsed=%ds) = %v, above 60s maximum", elapsed, got)
 		}
+	}
+}
+
+func TestSleepWithContext_CancelledImmediately(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel before sleeping
+
+	start := time.Now()
+	err := sleepWithContext(ctx, 10*time.Second)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Error("expected error from cancelled context, got nil")
+	}
+	if elapsed > 500*time.Millisecond {
+		t.Errorf("sleepWithContext took %v, should have returned immediately", elapsed)
+	}
+}
+
+func TestSleepWithContext_CompletesNormally(t *testing.T) {
+	ctx := context.Background()
+	start := time.Now()
+	err := sleepWithContext(ctx, 50*time.Millisecond)
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if elapsed < 50*time.Millisecond {
+		t.Errorf("sleepWithContext returned too early: %v", elapsed)
 	}
 }
 
