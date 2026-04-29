@@ -131,6 +131,7 @@ func newJobSubmitCommand() *cobra.Command {
 func buildJobResource(def *utils.JobDefinition) *models.JobResource {
 	job := models.CommandJob{
 		JobType:                   "Command",
+		ExperimentName:            def.ExperimentName,
 		DisplayName:               def.DisplayName,
 		Description:               def.Description,
 		Command:                   def.Command,

@@ -18,6 +18,7 @@ type JobDefinition struct {
 	Type                 string                      `yaml:"type"`
 	Name                 string                      `yaml:"name"`
 	DisplayName          string                      `yaml:"display_name"`
+	ExperimentName       string                      `yaml:"experiment_name"`
 	Description          string                      `yaml:"description"`
 	Command              string                      `yaml:"command" validate:"required"`
 	Environment          string                      `yaml:"environment" validate:"required"`
