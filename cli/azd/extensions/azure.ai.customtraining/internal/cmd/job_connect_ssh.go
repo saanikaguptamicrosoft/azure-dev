@@ -6,14 +6,12 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
-	"time"
 
 	"azure.ai.customtraining/internal/utils"
 	"azure.ai.customtraining/pkg/client"
@@ -21,7 +19,6 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/azure/azure-dev/cli/azd/pkg/azdext"
-	"github.com/gorilla/websocket"
 	"github.com/spf13/cobra"
 )
 
@@ -106,14 +103,7 @@ func newJobConnectSSHCommand() *cobra.Command {
 				return fmt.Errorf("failed to locate azd extension binary: %w", err)
 			}
 
-			// 6. Preflight the WebSocket tunnel so token/scope/endpoint problems
-			//    surface as clear errors instead of OpenSSH's opaque
-			//    "Connection closed by UNKNOWN port 65535".
-			if err := preflightSSHTunnel(ctx, proxyEndpoint); err != nil {
-				return fmt.Errorf("ssh tunnel preflight failed: %w", err)
-			}
-
-			// 7. Build and exec ssh
+			// 6. Build and exec ssh
 			return runSSH(ctx, sshPath, selfPath, proxyEndpoint, privateKeyFile)
 		},
 	}
@@ -235,62 +225,6 @@ func runSSH(ctx context.Context, sshPath, selfPath, proxyEndpoint, privateKeyFil
 		}
 		return fmt.Errorf("ssh failed: %w", err)
 	}
-	return nil
-}
-
-// preflightSSHTunnel opens a brief WebSocket connection to the SSH proxy endpoint
-// and immediately closes it. This catches token/scope/endpoint errors up front so
-// the user sees a clear message instead of OpenSSH's generic
-// "Connection closed by UNKNOWN port 65535".
-func preflightSSHTunnel(ctx context.Context, proxyEndpoint string) error {
-	wsURL := proxyEndpoint
-	if strings.HasPrefix(wsURL, "https://") {
-		wsURL = "wss://" + strings.TrimPrefix(wsURL, "https://")
-	} else if strings.HasPrefix(wsURL, "http://") {
-		wsURL = "ws://" + strings.TrimPrefix(wsURL, "http://")
-	}
-
-	azdClient, err := azdext.NewAzdClient()
-	if err != nil {
-		return fmt.Errorf("failed to create azd client: %w", err)
-	}
-	defer azdClient.Close()
-
-	cred, err := azidentity.NewAzureDeveloperCLICredential(&azidentity.AzureDeveloperCLICredentialOptions{
-		AdditionallyAllowedTenants: []string{"*"},
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create azure credential: %w", err)
-	}
-
-	tmpClient, err := client.NewClient("https://placeholder.services.ai.azure.com/api/projects/p", cred)
-	if err != nil {
-		return err
-	}
-	token, err := tmpClient.GetARMToken(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to acquire management token: %w", err)
-	}
-
-	// Use an explicit dialer with a generous handshake timeout. Azure ingress on a
-	// cold path (newly-Running container) can take 30s+ to respond; the default
-	// 15s was too aggressive and surfaced as `i/o timeout`.
-	dialer := *websocket.DefaultDialer
-	dialer.HandshakeTimeout = 60 * time.Second
-	header := http.Header{}
-	header.Set("Authorization", "Bearer "+token)
-
-	dialCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
-	defer cancel()
-
-	conn, resp, err := dialer.DialContext(dialCtx, wsURL, header)
-	if err != nil {
-		if resp != nil {
-			return fmt.Errorf("websocket dial returned HTTP %d: %w", resp.StatusCode, err)
-		}
-		return fmt.Errorf("websocket dial failed: %w", err)
-	}
-	_ = conn.Close()
 	return nil
 }
 

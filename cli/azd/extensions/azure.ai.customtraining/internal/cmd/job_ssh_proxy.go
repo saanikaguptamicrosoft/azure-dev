@@ -43,29 +43,20 @@ func runSSHProxy(ctx context.Context, proxyEndpoint string) error {
 		return fmt.Errorf("proxy endpoint argument is empty")
 	}
 
-	debug := os.Getenv("AZD_DEBUG") != "" || os.Getenv("AZURE_AI_SSH_DEBUG") != ""
-	dbg := func(format string, a ...any) {
-		if debug {
-			fmt.Fprintf(os.Stderr, "[ssh-proxy] "+format+"\n", a...)
-		}
-	}
-
-	// AML returns ProxyEndpoint as a fully-qualified wss:// URL ready to dial.
-	// Do not append any path; the backend rejects unknown paths.
+	// AML's NIP/TunDRA endpoint exposes the WebSocket at /nbip/v1.0/ws-tcp;
+	// the ProxyEndpoint returned by the serviceinstances API is the base URL only.
 	wsURL := proxyEndpoint
 	if strings.HasPrefix(wsURL, "https://") {
 		wsURL = "wss://" + strings.TrimPrefix(wsURL, "https://")
 	} else if strings.HasPrefix(wsURL, "http://") {
 		wsURL = "ws://" + strings.TrimPrefix(wsURL, "http://")
 	}
-	dbg("dialing %s", wsURL)
+	wsURL = strings.TrimRight(wsURL, "/") + "/nbip/v1.0/ws-tcp"
 
-	// Acquire ARM-scoped token (the WebSocket tunnel requires a management token).
 	token, err := acquireARMToken(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to acquire management token: %w", err)
+		return fmt.Errorf("failed to acquire tunnel token: %w", err)
 	}
-	dbg("acquired management token (len=%d)", len(token))
 
 	header := http.Header{}
 	header.Set("Authorization", "Bearer "+token)
@@ -83,7 +74,6 @@ func runSSHProxy(ctx context.Context, proxyEndpoint string) error {
 		return fmt.Errorf("failed to open websocket tunnel: %w", err)
 	}
 	defer conn.Close()
-	dbg("websocket connected")
 
 	// Bidirectional pipe between stdio and the WebSocket.
 	// We exit when either direction returns (EOF, error, or context cancel).
@@ -127,15 +117,15 @@ func runSSHProxy(ctx context.Context, proxyEndpoint string) error {
 	// Wait for either direction to finish, or for context cancellation.
 	select {
 	case err := <-errCh:
-		// EOF and normal close are not errors from the user's perspective.
+		// EOF and orderly close are clean exits from the user's perspective.
+		// CloseAbnormalClosure (1006) is intentionally NOT treated as success so
+		// that abrupt disconnects surface as a non-zero exit to OpenSSH.
 		if err == nil || err == io.EOF || websocket.IsCloseError(err,
 			websocket.CloseNormalClosure,
-			websocket.CloseGoingAway,
-			websocket.CloseAbnormalClosure) {
+			websocket.CloseGoingAway) {
 			return nil
 		}
-		fmt.Fprintf(os.Stderr, "Connection closed: %v\n", err)
-		return nil
+		return err
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -144,12 +134,6 @@ func runSSHProxy(ctx context.Context, proxyEndpoint string) error {
 // acquireARMToken fetches a bearer token for the ARM management scope.
 // Uses AzureDeveloperCLICredential to match the rest of the extension.
 func acquireARMToken(ctx context.Context) (string, error) {
-	azdClient, err := azdext.NewAzdClient()
-	if err != nil {
-		return "", fmt.Errorf("failed to create azd client: %w", err)
-	}
-	defer azdClient.Close()
-
 	cred, err := azidentity.NewAzureDeveloperCLICredential(&azidentity.AzureDeveloperCLICredentialOptions{
 		AdditionallyAllowedTenants: []string{"*"},
 	})
@@ -157,8 +141,6 @@ func acquireARMToken(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("failed to create azure credential: %w", err)
 	}
 
-	// We don't need a full project endpoint here — just a credential to mint a token.
-	// Build a minimal client purely so we can reuse its token helper.
 	tmpClient, err := client.NewClient("https://placeholder.services.ai.azure.com/api/projects/p", cred)
 	if err != nil {
 		return "", err

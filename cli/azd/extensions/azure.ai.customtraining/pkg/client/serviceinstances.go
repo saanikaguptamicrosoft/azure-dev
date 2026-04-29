@@ -80,3 +80,10 @@ func (c *Client) GetServiceInstance(
 func (c *Client) GetARMToken(ctx context.Context) (string, error) {
 	return c.getToken(ctx, ARMScope)
 }
+
+// GetTokenForScope returns a bearer token for an arbitrary scope. Exposed so
+// callers (e.g. the SSH tunnel) can experiment with audiences without changing
+// the client struct.
+func (c *Client) GetTokenForScope(ctx context.Context, scope string) (string, error) {
+	return c.getToken(ctx, scope)
+}
