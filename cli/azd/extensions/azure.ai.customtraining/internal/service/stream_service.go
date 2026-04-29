@@ -224,7 +224,11 @@ func (s *StreamService) pollAndPrintLogs(
 		sasURI := details.LogFiles[fileName]
 
 		content, _, err := s.client.GetBlobContent(ctx, sasURI)
-		if err != nil || content == "" {
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to read log file %s: %v\n", fileName, err)
+			continue
+		}
+		if content == "" {
 			continue
 		}
 
@@ -262,7 +266,10 @@ func (s *StreamService) flushLogs(
 	processedLines map[string]int,
 	multiFile bool,
 ) {
-	_, _, _ = s.pollAndPrintLogs(ctx, trackingEndpoint, jobName, processedLines, multiFile)
+	_, _, err := s.pollAndPrintLogs(ctx, trackingEndpoint, jobName, processedLines, multiFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to flush final logs: %v\n", err)
+	}
 }
 
 // extractServiceEndpoint extracts the endpoint URL from the job services map.
