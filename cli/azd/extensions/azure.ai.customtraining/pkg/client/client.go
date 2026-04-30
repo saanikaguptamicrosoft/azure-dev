@@ -129,15 +129,24 @@ func (c *Client) doDataPlane(ctx context.Context, method, path string, body inte
 
 // addAuth adds a bearer token to the request.
 func (c *Client) addAuth(ctx context.Context, req *http.Request, scope string) error {
+	token, err := c.getToken(ctx, scope)
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+token)
+	return nil
+}
+
+// getToken returns a bearer access token for the given scope.
+func (c *Client) getToken(ctx context.Context, scope string) (string, error) {
 	token, err := c.credential.GetToken(ctx, policy.TokenRequestOptions{
 		Scopes: []string{scope},
 	})
 	if err != nil {
-		return fmt.Errorf("failed to get access token: %w", err)
+		return "", fmt.Errorf("failed to get access token: %w", err)
 	}
-
-	req.Header.Set("Authorization", "Bearer "+token.Token)
-	return nil
+	return token.Token, nil
 }
 
 // HandleError reads the error body and returns a formatted error.

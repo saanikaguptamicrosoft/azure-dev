@@ -206,10 +206,53 @@ func buildJobResource(def *utils.JobDefinition) *models.JobResource {
 		}
 	}
 
+	// Services (e.g., SSH). Validation in ValidateJobDefinition restricts type to "ssh"
+	// and ensures ssh_public_keys is non-empty.
+	if len(def.Services) > 0 {
+		job.Services = make(map[string]interface{}, len(def.Services))
+		for name, svc := range def.Services {
+			job.Services[name] = buildServiceRequest(svc)
+		}
+	}
+
 	return &models.JobResource{
 		Properties: job,
 		Tags:       def.Tags,
 	}
+}
+
+// buildServiceRequest translates an AML YAML ServiceDefinition into the API request shape.
+// Currently only SSH is supported (enforced by ValidateJobDefinition).
+func buildServiceRequest(svc utils.ServiceDefinition) *models.JobServiceRequest {
+	req := &models.JobServiceRequest{
+		JobServiceType: mapServiceType(svc.Type),
+		Port:           svc.Port,
+	}
+
+	// Nodes: "all" → { nodesValueType: "All" } (run on all nodes).
+	// Empty/unset → nil (backend default: leader node only, index 0).
+	if strings.EqualFold(strings.TrimSpace(svc.Nodes), "all") {
+		req.Nodes = &models.NodesValue{NodesValueType: "All"}
+	}
+
+	// Merge ssh_public_keys into properties (API uses properties.sshPublicKeys).
+	props := make(map[string]any)
+	for k, v := range svc.Properties {
+		props[k] = v
+	}
+	props["sshPublicKeys"] = svc.SshPublicKeys
+	req.Properties = props
+
+	return req
+}
+
+// mapServiceType converts AML YAML service type to API jobServiceType.
+// Only SSH is supported by Foundry custom training jobs today.
+func mapServiceType(t string) string {
+	if strings.EqualFold(t, "ssh") {
+		return "SSH"
+	}
+	return t
 }
 
 // mapInputMode converts AML YAML mode names to REST API mode names.

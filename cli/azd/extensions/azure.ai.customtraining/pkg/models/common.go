@@ -20,7 +20,7 @@ type JobOutput struct {
 
 // Distribution represents distributed training configuration.
 type Distribution struct {
-	DistributionType        string `json:"distributionType"`                  // "PyTorch", "Mpi", "TensorFlow"
+	DistributionType        string `json:"distributionType"` // "PyTorch", "Mpi", "TensorFlow"
 	ProcessCountPerInstance int    `json:"processCountPerInstance,omitempty"`
 }
 
@@ -31,6 +31,20 @@ type ResourceConfig struct {
 	ShmSize       string         `json:"shmSize,omitempty"`
 	DockerArgs    string         `json:"dockerArgs,omitempty"`
 	Properties    map[string]any `json:"properties,omitempty"`
+}
+
+// JobServiceRequest is the request-side shape for a job service (e.g., SSH).
+// The API expects: { jobServiceType, nodes: { nodesValueType }, properties: {...} }
+type JobServiceRequest struct {
+	JobServiceType string         `json:"jobServiceType"`  // e.g., "SSH"
+	Nodes          *NodesValue    `json:"nodes,omitempty"` // nil means single node 0
+	Port           int            `json:"port,omitempty"`
+	Properties     map[string]any `json:"properties,omitempty"` // e.g., { sshPublicKeys: "..." }
+}
+
+// NodesValue represents which nodes a service runs on.
+type NodesValue struct {
+	NodesValueType string `json:"nodesValueType"` // "All" (only supported value)
 }
 
 // CommandJobLimits represents job limits.

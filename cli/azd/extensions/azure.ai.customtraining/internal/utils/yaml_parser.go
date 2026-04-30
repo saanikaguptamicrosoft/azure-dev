@@ -14,26 +14,37 @@ import (
 
 // JobDefinition represents a job defined in a YAML file (AML-compatible format).
 type JobDefinition struct {
-	Schema               string                      `yaml:"$schema"`
-	Type                 string                      `yaml:"type"`
-	Name                 string                      `yaml:"name"`
-	DisplayName          string                      `yaml:"display_name"`
-	ExperimentName       string                      `yaml:"experiment_name"`
-	Description          string                      `yaml:"description"`
-	Command              string                      `yaml:"command" validate:"required"`
-	Environment          string                      `yaml:"environment" validate:"required"`
-	Compute              string                      `yaml:"compute" validate:"required"`
-	Code                 string                      `yaml:"code"`
-	Inputs               map[string]InputDefinition  `yaml:"inputs"`
-	Outputs              map[string]OutputDefinition `yaml:"outputs"`
-	Distribution         string                      `yaml:"distribution"`
-	Resources            *ResourceDefinition         `yaml:"resources"`
-	InstanceCount        int                         `yaml:"instance_count"`
-	ProcessPerNode       int                         `yaml:"process_per_node"`
-	EnvironmentVariables map[string]string           `yaml:"environment_variables"`
-	Identity             string                      `yaml:"identity"`
-	Timeout              string                      `yaml:"timeout"`
-	Tags                 map[string]string           `yaml:"tags"`
+	Schema               string                       `yaml:"$schema"`
+	Type                 string                       `yaml:"type"`
+	Name                 string                       `yaml:"name"`
+	DisplayName          string                       `yaml:"display_name"`
+	ExperimentName       string                       `yaml:"experiment_name"`
+	Description          string                       `yaml:"description"`
+	Command              string                       `yaml:"command" validate:"required"`
+	Environment          string                       `yaml:"environment" validate:"required"`
+	Compute              string                       `yaml:"compute" validate:"required"`
+	Code                 string                       `yaml:"code"`
+	Inputs               map[string]InputDefinition   `yaml:"inputs"`
+	Outputs              map[string]OutputDefinition  `yaml:"outputs"`
+	Distribution         string                       `yaml:"distribution"`
+	Resources            *ResourceDefinition          `yaml:"resources"`
+	InstanceCount        int                          `yaml:"instance_count"`
+	ProcessPerNode       int                          `yaml:"process_per_node"`
+	EnvironmentVariables map[string]string            `yaml:"environment_variables"`
+	Identity             string                       `yaml:"identity"`
+	Timeout              string                       `yaml:"timeout"`
+	Tags                 map[string]string            `yaml:"tags"`
+	Services             map[string]ServiceDefinition `yaml:"services"`
+}
+
+// ServiceDefinition represents a job service (e.g., SSH) declared in YAML.
+// Mirrors the AML schema for SshJobServiceSchema.
+type ServiceDefinition struct {
+	Type          string         `yaml:"type"`            // "ssh" (currently only ssh is supported)
+	SshPublicKeys string         `yaml:"ssh_public_keys"` // required: a single SSH public key string (e.g. "ssh-rsa AAAA...")
+	Nodes         string         `yaml:"nodes"`           // "all" to run on all nodes; empty/unset → leader node only (index 0)
+	Port          int            `yaml:"port"`
+	Properties    map[string]any `yaml:"properties"`
 }
 
 // ResourceDefinition represents the compute resource configuration in a YAML job definition.
@@ -113,6 +124,14 @@ func ValidateJobDefinition(job *JobDefinition) error {
 	}
 	if job.Compute == "" {
 		return fmt.Errorf("job YAML validation: 'compute' is required")
+	}
+	for name, svc := range job.Services {
+		if !strings.EqualFold(svc.Type, "ssh") {
+			return fmt.Errorf("job YAML validation: services.%s.type=%q is not supported; only 'ssh' is allowed", name, svc.Type)
+		}
+		if strings.TrimSpace(svc.SshPublicKeys) == "" {
+			return fmt.Errorf("job YAML validation: services.%s.ssh_public_keys is required when type is 'ssh'", name)
+		}
 	}
 	return nil
 }
