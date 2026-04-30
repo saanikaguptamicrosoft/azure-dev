@@ -33,9 +33,15 @@ func newJobConnectSSHCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "connect-ssh",
-		Short: "Open an SSH session to a running training job",
-		Long: "Open an SSH session to the container of a running training job.\n\n" +
-			"The job must have been submitted with an SSH service enabled in its YAML.\n\n" +
+		Short: "Open an SSH session to a node of a running training job",
+		Long: "Open an SSH session to the container of a running training job, optionally targeting a specific node by index.\n\n" +
+			"Prerequisite: the job must have been submitted with an SSH service enabled in its YAML, e.g.:\n\n" +
+			"  services:\n" +
+			"    my_ssh:\n" +
+			"      type: ssh\n" +
+			"      ssh_public_keys: |\n" +
+			"        ssh-ed25519 AAAA... user@host\n\n" +
+			"The SSH service must reach 'Running' status before this command can connect; that typically takes 30s\u2013120s after the job enters Running. If --private-key-file-path is omitted, the OpenSSH client falls back to the default identities under ~/.ssh/.\n\n" +
 			"Example:\n" +
 			"  azd ai training job connect-ssh --name my-job --node-index 0 --private-key-file-path ~/.ssh/id_ed25519",
 		Args: cobra.NoArgs,
@@ -109,7 +115,8 @@ func newJobConnectSSHCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&name, "name", "", "Job name (required)")
-	cmd.Flags().IntVar(&nodeIndex, "node-index", 0, "Node index to connect to (default 0)")
+	cmd.Flags().IntVar(&nodeIndex, "node-index", 0,
+		"Zero-based index of the node to connect to in a multi-node job (default 0)")
 	cmd.Flags().StringVar(&privateKeyFile, "private-key-file-path", "",
 		"Path to the SSH private key file (optional; ssh will use ~/.ssh defaults if omitted)")
 
