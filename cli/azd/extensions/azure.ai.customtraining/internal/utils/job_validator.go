@@ -118,7 +118,20 @@ func ValidateJobOffline(job *JobDefinition, yamlDir string) *ValidationResult {
 		validateInputOutputDefinitions(result, job, optionalInputs)
 	}
 
-	// 9. Services: only "ssh" is supported, and ssh_public_keys is required.
+	// 9. Outputs: "default" is reserved by the backend and rejected at submit time
+	// with a 400 ("Name of the output \"default\" is reserved by the system").
+	// Catch it offline so users don't have to wait for the backend round-trip.
+	for name := range job.Outputs {
+		if strings.EqualFold(name, "default") {
+			result.Findings = append(result.Findings, ValidationFinding{
+				Field:    fmt.Sprintf("outputs.%s", name),
+				Severity: SeverityError,
+				Message:  "output name 'default' is reserved by the system; use a different name",
+			})
+		}
+	}
+
+	// 10. Services: only "ssh" is supported, and ssh_public_keys is required.
 	// The backend currently does not enforce key presence — without keys the SSH
 	// service is provisioned but unusable, and users hit the failure later.
 	for name, svc := range job.Services {

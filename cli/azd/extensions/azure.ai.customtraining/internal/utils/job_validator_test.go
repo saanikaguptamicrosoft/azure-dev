@@ -393,6 +393,48 @@ func TestValidate_Services(t *testing.T) {
 	}
 }
 
+// Tests that the reserved output name "default" is rejected. The backend rejects
+// it at submit time with a 400; we catch it offline so users don't have to wait
+// for the round-trip.
+func TestValidate_ReservedOutputName(t *testing.T) {
+	// Lowercase "default":
+	//   outputs:
+	//     default:
+	//       type: uri_folder
+	job := validJob()
+	job.Outputs = map[string]OutputDefinition{"default": {Type: "uri_folder"}}
+	result := ValidateJobOffline(job, ".")
+	if f := findFindingByMessage(result, "reserved by the system"); f == nil {
+		t.Error("expected error for output named 'default'")
+	} else if f.Severity != SeverityError {
+		t.Errorf("expected SeverityError for reserved output name, got %s", f.Severity)
+	}
+
+	// Case-insensitive — "Default" should also be rejected:
+	job = validJob()
+	job.Outputs = map[string]OutputDefinition{"Default": {Type: "uri_folder"}}
+	result = ValidateJobOffline(job, ".")
+	if f := findFindingByMessage(result, "reserved by the system"); f == nil {
+		t.Error("expected error for output named 'Default' (case-insensitive)")
+	}
+
+	// Non-reserved name — no reserved-name finding:
+	job = validJob()
+	job.Outputs = map[string]OutputDefinition{"model": {Type: "uri_folder"}}
+	result = ValidateJobOffline(job, ".")
+	if f := findFindingByMessage(result, "reserved by the system"); f != nil {
+		t.Errorf("did not expect reserved-name finding for output 'model': %s", f.Message)
+	}
+
+	// Inputs named "default" are NOT reserved — should be allowed:
+	job = validJob()
+	job.Inputs = map[string]InputDefinition{"default": {Type: "uri_folder", Path: "azureml://datastore/x"}}
+	result = ValidateJobOffline(job, ".")
+	if f := findFindingByMessage(result, "reserved by the system"); f != nil {
+		t.Errorf("did not expect reserved-name finding for input 'default': %s", f.Message)
+	}
+}
+
 func TestValidationResult_HasErrorsAndCounts(t *testing.T) {
 	r := &ValidationResult{}
 	if r.HasErrors() {
