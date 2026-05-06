@@ -363,6 +363,13 @@ func printJobDetails(d *jobDetails) {
 		w.Flush()
 	}
 
+	if props.GPUCount > 0 {
+		fmt.Println()
+		w = tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintf(w, "GPU Count:\t%d\n", props.GPUCount)
+		w.Flush()
+	}
+
 	// Inputs — merge job inputs with run history inputs for asset IDs
 	printInputsSection(props.Inputs, d.History)
 
