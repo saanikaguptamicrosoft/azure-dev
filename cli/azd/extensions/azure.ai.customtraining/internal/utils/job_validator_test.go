@@ -303,13 +303,13 @@ func TestValidate_EmptyDefinitions(t *testing.T) {
 	// YAML — output key exists but has no properties (None):
 	//   command: python train.py --out ${{outputs.model}}
 	//   outputs:
-	//     model:              ← empty definition → warning (backend uses defaults)
+	//     model:              ← empty definition → error (backend rejects empty type)
 	job = validJob()
 	job.Command = "python train.py --out ${{outputs.model}}"
 	job.Outputs = map[string]OutputDefinition{"model": {}}
 	result = ValidateJobOffline(job, ".")
-	if f := findFindingByMessage(result, "default values will be used"); f == nil || f.Severity != SeverityWarning {
-		t.Error("expected warning for empty output definition")
+	if f := findFindingByMessage(result, "type is required"); f == nil || f.Severity != SeverityError {
+		t.Error("expected error for empty output definition (missing type)")
 	}
 }
 
@@ -432,6 +432,48 @@ func TestValidate_ReservedOutputName(t *testing.T) {
 	result = ValidateJobOffline(job, ".")
 	if f := findFindingByMessage(result, "reserved by the system"); f != nil {
 		t.Errorf("did not expect reserved-name finding for input 'default': %s", f.Message)
+	}
+}
+
+// Tests that path-style inputs (no `value:`) must declare a type. The backend
+// rejects missing/empty input type with "Unexpected JobInputType in request body: []".
+func TestValidate_InputTypeRequired(t *testing.T) {
+	// Path input missing type:
+	//   inputs:
+	//     train_data:
+	//       path: azureml://datastore/x   ← no type → error
+	job := validJob()
+	job.Inputs = map[string]InputDefinition{
+		"train_data": {Path: "azureml://datastore/x"},
+	}
+	result := ValidateJobOffline(job, ".")
+	if f := findFindingByMessage(result, "type is required"); f == nil {
+		t.Error("expected error for path input missing type")
+	} else if f.Severity != SeverityError {
+		t.Errorf("expected SeverityError for path input missing type, got %s", f.Severity)
+	}
+
+	// Literal input (value: set) — type defaults to "literal", no error expected:
+	//   inputs:
+	//     epochs:
+	//       value: "10"
+	job = validJob()
+	job.Inputs = map[string]InputDefinition{
+		"epochs": {Value: "10"},
+	}
+	result = ValidateJobOffline(job, ".")
+	if f := findFindingByMessage(result, "type is required"); f != nil {
+		t.Errorf("did not expect type-required finding for literal input: %s", f.Message)
+	}
+
+	// Path input with type — no finding:
+	job = validJob()
+	job.Inputs = map[string]InputDefinition{
+		"train_data": {Type: "uri_folder", Path: "azureml://datastore/x"},
+	}
+	result = ValidateJobOffline(job, ".")
+	if f := findFindingByMessage(result, "type is required"); f != nil {
+		t.Errorf("did not expect type-required finding for valid path input: %s", f.Message)
 	}
 }
 
