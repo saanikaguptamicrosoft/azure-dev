@@ -333,6 +333,66 @@ func TestValidate_MultilineCommand(t *testing.T) {
 	}
 }
 
+// Tests services block validation:
+//   - non-ssh service type → error
+//   - ssh service missing ssh_public_keys → error
+//   - ssh service with keys → no findings for that service
+func TestValidate_Services(t *testing.T) {
+	// Unsupported service type:
+	//   services:
+	//     jupyter:
+	//       type: jupyter_lab
+	//       ssh_public_keys: ssh-rsa AAA...
+	job := validJob()
+	job.Services = map[string]ServiceDefinition{
+		"jupyter": {Type: "jupyter_lab", SshPublicKeys: "ssh-rsa AAA..."},
+	}
+	result := ValidateJobOffline(job, ".")
+	if f := findFindingByMessage(result, "is not supported"); f == nil {
+		t.Error("expected error for unsupported service type")
+	} else if f.Severity != SeverityError {
+		t.Errorf("expected SeverityError for unsupported service type, got %s", f.Severity)
+	}
+
+	// SSH service missing ssh_public_keys:
+	//   services:
+	//     my_ssh:
+	//       type: ssh
+	job = validJob()
+	job.Services = map[string]ServiceDefinition{
+		"my_ssh": {Type: "ssh"},
+	}
+	result = ValidateJobOffline(job, ".")
+	if f := findFindingByMessage(result, "ssh_public_keys is required"); f == nil {
+		t.Error("expected error for missing ssh_public_keys")
+	} else if f.Severity != SeverityError {
+		t.Errorf("expected SeverityError for missing ssh_public_keys, got %s", f.Severity)
+	}
+
+	// Whitespace-only ssh_public_keys also counts as missing:
+	job = validJob()
+	job.Services = map[string]ServiceDefinition{
+		"my_ssh": {Type: "ssh", SshPublicKeys: "   \n  "},
+	}
+	result = ValidateJobOffline(job, ".")
+	if f := findFindingByMessage(result, "ssh_public_keys is required"); f == nil {
+		t.Error("expected error for whitespace-only ssh_public_keys")
+	}
+
+	// Valid SSH service — no service-related findings:
+	job = validJob()
+	job.Services = map[string]ServiceDefinition{
+		"my_ssh": {Type: "ssh", SshPublicKeys: "ssh-rsa AAA..."},
+	}
+	result = ValidateJobOffline(job, ".")
+	if f := findFindingByMessage(result, "ssh_public_keys"); f != nil {
+		t.Errorf("did not expect ssh_public_keys finding for valid SSH service: %s", f.Message)
+	}
+	if f := findFindingByMessage(result, "is not supported"); f != nil {
+		t.Errorf("did not expect type-not-supported finding for valid SSH service: %s", f.Message)
+	}
+}
+
 func TestValidationResult_HasErrorsAndCounts(t *testing.T) {
 	r := &ValidationResult{}
 	if r.HasErrors() {

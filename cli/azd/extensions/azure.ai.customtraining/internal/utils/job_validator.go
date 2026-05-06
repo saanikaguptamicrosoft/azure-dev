@@ -10,6 +10,8 @@ import (
 	"reflect"
 	"regexp"
 	"strings"
+
+	"github.com/fatih/color"
 )
 
 // FindingSeverity indicates whether a finding is an error or a warning.
@@ -116,7 +118,67 @@ func ValidateJobOffline(job *JobDefinition, yamlDir string) *ValidationResult {
 		validateInputOutputDefinitions(result, job, optionalInputs)
 	}
 
+	// 9. Services: only "ssh" is supported, and ssh_public_keys is required.
+	// The backend currently does not enforce key presence — without keys the SSH
+	// service is provisioned but unusable, and users hit the failure later.
+	for name, svc := range job.Services {
+		if !strings.EqualFold(svc.Type, "ssh") {
+			result.Findings = append(result.Findings, ValidationFinding{
+				Field:    fmt.Sprintf("services.%s.type", name),
+				Severity: SeverityError,
+				Message:  fmt.Sprintf("type %q is not supported; only 'ssh' is allowed", svc.Type),
+			})
+			continue
+		}
+		if strings.TrimSpace(svc.SshPublicKeys) == "" {
+			result.Findings = append(result.Findings, ValidationFinding{
+				Field:    fmt.Sprintf("services.%s.ssh_public_keys", name),
+				Severity: SeverityError,
+				Message:  "ssh_public_keys is required when type is 'ssh'",
+			})
+		}
+	}
+
 	return result
+}
+
+// ReportValidationResult prints findings to stdout and returns an error if any
+// finding has Error severity. Shared by the `job validate` command (which calls
+// it as the entire command body) and the `job submit` command (which calls it
+// as a pre-flight check before any network or upload work).
+//
+// When printSuccess is true, a green success line is printed for clean and
+// warnings-only results. Submit passes false so the success message doesn't
+// clutter its own "Submitting command job…" output flow.
+func ReportValidationResult(filePath string, result *ValidationResult, printSuccess bool) error {
+	if len(result.Findings) == 0 {
+		if printSuccess {
+			color.Green("✓ Validation passed: %s\n", filePath)
+		}
+		return nil
+	}
+
+	fmt.Printf("Validation results for: %s\n\n", filePath)
+
+	for _, f := range result.Findings {
+		prefix := "⚠"
+		if f.Severity == SeverityError {
+			prefix = "✗"
+		}
+		fmt.Printf("  %s [%s] %s: %s\n", prefix, f.Severity, f.Field, f.Message)
+	}
+
+	fmt.Println()
+	fmt.Printf("  Errors: %d, Warnings: %d\n", result.ErrorCount(), result.WarningCount())
+
+	if result.HasErrors() {
+		return fmt.Errorf("validation failed with %d error(s)", result.ErrorCount())
+	}
+
+	if printSuccess {
+		color.Green("\n✓ Validation passed with warnings.\n")
+	}
+	return nil
 }
 
 // validateLocalPath checks that a local path exists on disk.
