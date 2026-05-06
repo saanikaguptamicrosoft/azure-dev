@@ -217,7 +217,7 @@ func buildJobResource(def *utils.JobDefinition) *models.JobResource {
 		}
 	}
 
-	// Services (e.g., SSH). Validation in ValidateJobDefinition restricts type to "ssh"
+	// Services (e.g., SSH). ValidateJobOffline restricts type to "ssh"
 	// and ensures ssh_public_keys is non-empty.
 	if len(def.Services) > 0 {
 		job.Services = make(map[string]interface{}, len(def.Services))
@@ -233,7 +233,7 @@ func buildJobResource(def *utils.JobDefinition) *models.JobResource {
 }
 
 // buildServiceRequest translates an AML YAML ServiceDefinition into the API request shape.
-// Currently only SSH is supported (enforced by ValidateJobDefinition).
+// Currently only SSH is supported (enforced by ValidateJobOffline).
 func buildServiceRequest(svc utils.ServiceDefinition) *models.JobServiceRequest {
 	req := &models.JobServiceRequest{
 		JobServiceType: mapServiceType(svc.Type),
