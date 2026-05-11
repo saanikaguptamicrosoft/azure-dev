@@ -4871,6 +4871,89 @@
           }
         }
       ]
+    },
+    {
+      "id": "azure.ai.training",
+      "namespace": "ai.training",
+      "displayName": "Azure Foundry Training (Preview)",
+      "description": "Extension for Microsoft Foundry training jobs. (Preview)",
+      "versions": [
+        {
+          "version": "0.0.1-preview",
+          "capabilities": [
+            "custom-commands",
+            "metadata"
+          ],
+          "usage": "azd ai training \u003ccommand\u003e [options]",
+          "examples": [
+            {
+              "name": "init",
+              "description": "Initialize project configuration for training.",
+              "usage": "azd ai training init"
+            },
+            {
+              "name": "job submit",
+              "description": "Submit a command job from YAML definition.",
+              "usage": "azd ai training job submit --file job.yaml"
+            },
+            {
+              "name": "job list",
+              "description": "List all training jobs.",
+              "usage": "azd ai training job list"
+            }
+          ],
+          "artifacts": {
+            "darwin/amd64": {
+              "checksum": {
+                "algorithm": "sha256",
+                "value": "a9f6c631a54b70a0a507a5217b8c78f2fc82ca0c78e62d7775fa14a48867e3b0"
+              },
+              "entryPoint": "azure-ai-training-darwin-amd64",
+              "url": "C:\\Users\\saanikagupta\\.azd\\registry\\azure.ai.training\\0.0.1-preview\\azure-ai-training-darwin-amd64.zip"
+            },
+            "darwin/arm64": {
+              "checksum": {
+                "algorithm": "sha256",
+                "value": "9f6916f1f07d24ef05a87e0877ab29afb4a348a4f44a05e8eedf703b56fed895"
+              },
+              "entryPoint": "azure-ai-training-darwin-arm64",
+              "url": "C:\\Users\\saanikagupta\\.azd\\registry\\azure.ai.training\\0.0.1-preview\\azure-ai-training-darwin-arm64.zip"
+            },
+            "linux/amd64": {
+              "checksum": {
+                "algorithm": "sha256",
+                "value": "0133b0d2ae7bf83e16956818f4bf814399cca91d9f2c5571d339573ef2e43ffb"
+              },
+              "entryPoint": "azure-ai-training-linux-amd64",
+              "url": "C:\\Users\\saanikagupta\\.azd\\registry\\azure.ai.training\\0.0.1-preview\\azure-ai-training-linux-amd64.tar.gz"
+            },
+            "linux/arm64": {
+              "checksum": {
+                "algorithm": "sha256",
+                "value": "76b2c2b5c2167bc272e10d9cb57ba62e666948f06730972490ae84fb8385b944"
+              },
+              "entryPoint": "azure-ai-training-linux-arm64",
+              "url": "C:\\Users\\saanikagupta\\.azd\\registry\\azure.ai.training\\0.0.1-preview\\azure-ai-training-linux-arm64.tar.gz"
+            },
+            "windows/amd64": {
+              "checksum": {
+                "algorithm": "sha256",
+                "value": "4bb11710b9a152749efb34f9f7a656c60e489148869ff9b2d143d2f7588b7c1b"
+              },
+              "entryPoint": "azure-ai-training-windows-amd64.exe",
+              "url": "C:\\Users\\saanikagupta\\.azd\\registry\\azure.ai.training\\0.0.1-preview\\azure-ai-training-windows-amd64.zip"
+            },
+            "windows/arm64": {
+              "checksum": {
+                "algorithm": "sha256",
+                "value": "b0d9138fd0291356a17351f1b1b0d91117c071d0eae36a7807a94f91c820d051"
+              },
+              "entryPoint": "azure-ai-training-windows-arm64.exe",
+              "url": "C:\\Users\\saanikagupta\\.azd\\registry\\azure.ai.training\\0.0.1-preview\\azure-ai-training-windows-arm64.zip"
+            }
+          }
+        }
+      ]
     }
   ]
 }
