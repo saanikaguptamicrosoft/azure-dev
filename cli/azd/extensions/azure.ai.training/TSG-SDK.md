@@ -1,6 +1,6 @@
 # Troubleshooting Guide - SDK (Python)
 
-This guide is for SDK flows that map to both training and models scenarios in Foundry.
+This guide is for SDK flows in horizon scope: training jobs and models (BYOW) in Foundry.
 
 ---
 
@@ -9,7 +9,6 @@ This guide is for SDK flows that map to both training and models scenarios in Fo
 Applies to:
 - `azure-ai-projects` (`AIProjectClient`, `project_client.get_openai_client()`)
 - Training jobs via `project_client.beta.jobs`
-- Fine-tuning jobs via `openai_client.fine_tuning.jobs`
 - BYOW models via `project_client.beta.models`
 
 ---
@@ -38,9 +37,9 @@ Fix: Provide a valid Azure credential (for example `DefaultAzureCredential`).
 Cause: Required environment variable is missing.
 Fix: Set `FOUNDRY_PROJECT_ENDPOINT` before running.
 
-#### `FileNotFoundError` when opening training/validation file (from samples)
-Cause: Path in `TRAINING_FILE_PATH` or `VALIDATION_FILE_PATH` is wrong.
-Fix: Verify file paths; sample defaults resolve under `samples/finetuning/data/`.
+#### `FileNotFoundError` when opening local input/model files (from samples)
+Cause: Local source path is wrong.
+Fix: Verify local paths used by training/model registration samples.
 
 ---
 
@@ -119,13 +118,13 @@ Fix: Use supported output types or download artifacts via service-native path.
 
 ---
 
-### 5) Service-side HTTP errors during fine-tuning/training/models
+### 5) Service-side HTTP errors during training/models
 
-All service-call failures are surfaced as HTTP exceptions (`HttpResponseError` and OpenAI HTTP errors). Focus on status code first.
+All service-call failures are surfaced as HTTP exceptions (primarily `HttpResponseError`). Focus on status code first.
 
 #### `401 Unauthorized` / `AuthenticationError`
 Cause: Token/key invalid, wrong endpoint, or missing required data action.
-Observed training baseline example: missing `AIServices/agents/write` data action.
+Observed baseline example: missing `AIServices/agents/write` data action.
 Fix: Verify endpoint, identity, token validity, and required permissions.
 
 #### `403 Forbidden` / `PermissionDeniedError`
@@ -212,7 +211,7 @@ Fix: Treat delete as successful if backend status is 200 and subsequent `get` re
 
 When escalating, include:
 - Endpoint (redact sensitive segments if needed)
-- Job ID / fine-tuning job ID
+- Job ID or model name/version
 - Exception type, HTTP status code, and full error message
 - UTC timestamp
 - Correlation/request ID headers
