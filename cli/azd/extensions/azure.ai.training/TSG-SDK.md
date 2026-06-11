@@ -1,6 +1,6 @@
 # Troubleshooting Guide - SDK (Python)
 
-This guide is for training and fine-tuning flows that use Azure SDK for Python and OpenAI client APIs through Azure AI Projects.
+This guide is for SDK flows that map to both training and models scenarios in Foundry.
 
 ---
 
@@ -10,6 +10,7 @@ Applies to:
 - `azure-ai-projects` (`AIProjectClient`, `project_client.get_openai_client()`)
 - Training jobs via `project_client.beta.jobs`
 - Fine-tuning jobs via `openai_client.fine_tuning.jobs`
+- BYOW models via `project_client.beta.models`
 
 ---
 
@@ -118,7 +119,7 @@ Fix: Use supported output types or download artifacts via service-native path.
 
 ---
 
-### 5) Service-side HTTP errors during fine-tuning/training
+### 5) Service-side HTTP errors during fine-tuning/training/models
 
 All service-call failures are surfaced as HTTP exceptions (`HttpResponseError` and OpenAI HTTP errors). Focus on status code first.
 
@@ -147,6 +148,63 @@ Fix: Backoff/retry and reduce concurrency; verify quota.
 #### `5xx` (for example `500 Internal Server Error`)
 Cause: Service transient or backend issue.
 Fix: Retry with correlation/request IDs; escalate with run/job IDs if persistent.
+
+---
+
+### 6) BYOW models registration and management (`project_client.beta.models`)
+
+#### `ValueError: \`name\` must be a non-empty string.`
+Cause: Empty model name passed to models create helper.
+Fix: Pass a non-empty `name`.
+
+#### `ValueError: \`version\` must be a non-empty string.`
+Cause: Empty model version passed to models create helper.
+Fix: Pass a non-empty `version`.
+
+#### `ValueError: Upload source does not exist: <path>`
+Cause: Local model source path is invalid.
+Fix: Point `source` to an existing local file or directory.
+
+#### `ValueError: Upload source directory is empty: <path>`
+Cause: Source directory has no files.
+Fix: Add model files (weights/config) to the folder before create.
+
+#### `ValueError: Upload source file is empty: <path>`
+Cause: Source file exists but has zero bytes.
+Fix: Replace with a valid non-empty file.
+
+#### `ValueError: \`polling_timeout\` must be > 0 when \`wait_for_commit\` is True.`
+#### `ValueError: \`polling_interval\` must be > 0 when \`wait_for_commit\` is True.`
+Cause: Invalid polling arguments in models create helper.
+Fix: Use positive values.
+
+#### `RuntimeError: \`azcopy\` was not found on PATH...` (sync create helper)
+Cause: Sync models create helper requires AzCopy for upload.
+Fix: Install AzCopy and ensure it is on PATH, or pass `azcopy_path`.
+
+#### `RuntimeError: azcopy exited with code <N> ...`
+Cause: File upload to pending container failed.
+Fix: Validate source path, connectivity, and SAS validity; retry.
+
+#### `ValueError: Could not locate SAS URI / blob URI in pending_upload response: ...`
+Cause: Service returned incomplete pending-upload payload.
+Fix: Retry. If persistent, open support ticket with request/correlation IDs.
+
+#### `RuntimeError: \`azure-storage-blob\` is required for the async \`create\` helper...`
+Cause: Async helper uses `azure.storage.blob.aio` for uploads and dependency is missing.
+Fix: Install with `pip install azure-storage-blob aiohttp`.
+
+#### `RuntimeError: Model '<name>'@'<version>' did not appear within <timeout>s after pending_create_version.`
+Cause: Commit accepted but model version not observable before timeout.
+Fix: Increase timeout and retry; if still failing, escalate with model name/version and timestamps.
+
+#### `ResourceNotFoundError` / `HttpResponseError` on `get(name, version)`
+Cause: Model version does not exist, is in wrong project endpoint, or was deleted.
+Fix: Verify endpoint and exact `name`/`version`, then list versions to confirm.
+
+#### `HttpResponseError` on delete even when operation succeeded (status 200)
+Cause: Service may return `200 OK` for delete while generated operation expects `204`.
+Fix: Treat delete as successful if backend status is 200 and subsequent `get` returns not found.
 
 ---
 
