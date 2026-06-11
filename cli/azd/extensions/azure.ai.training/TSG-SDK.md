@@ -7,7 +7,7 @@ This guide is for SDK flows in horizon scope: training jobs and models (BYOW) in
 ## Scope
 
 Applies to:
-- `azure-ai-projects` (`AIProjectClient`, `project_client.get_openai_client()`)
+- `azure-ai-projects` (`AIProjectClient`)
 - Training jobs via `project_client.beta.jobs`
 - BYOW models via `project_client.beta.models`
 
