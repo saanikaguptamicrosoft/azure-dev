@@ -1,3 +1,5 @@
+Original link: https://github.com/jayantjha/agent-first-sdk/tree/jayant/compute/specs/compute
+
 # Spec Template
 
 - TypeSpec: [Foundry Compute - Typespec](https://github.com/Azure/azure-rest-api-specs/pull/41101)
