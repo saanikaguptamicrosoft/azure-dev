@@ -246,3 +246,66 @@ Also shown as: `✗ Model '<name>' version '<version>' already exists.`
 #### `azcopy not found at specified path: <path>`
 **Cause:** The binary pointed to by `--azcopy-path` doesn't exist at that location.  
 **Fix:** Verify the path is correct and the binary is executable.
+
+---
+
+## Compute CLI (`az cognitiveservices account compute`)
+
+Scope for this TSG section is only the 4 compute operations:
+- `create`
+- `show`
+- `list`
+- `delete`
+
+### Common command-shape errors
+
+#### `the following arguments are required: --name/-n, --resource-group/-g`
+**Cause:** Account name or resource group was omitted.  
+**Fix:** Always pass both account and resource group:
+`az cognitiveservices account compute <op> -n <account> -g <resource-group> ...`
+
+#### `unrecognized arguments: ...`
+**Cause:** Unsupported flags were provided for the compute command.  
+**Fix:** Use `az cognitiveservices account compute -h` and the specific subcommand help to validate supported flags.
+
+### Create (`compute create`)
+
+#### `HttpResponseError` with status `400 Bad Request`
+**Cause:** One or more compute/pool properties are invalid (common: bad `--instance-type`, invalid `--node-count`, invalid `--vm-priority`, or missing pool fields).  
+**Fix:** Recheck all create inputs and retry with valid pool settings.
+
+#### `HttpResponseError` with status `401` or `403`
+**Cause:** You are not authenticated for this scope, or your identity lacks permission to manage computes.  
+**Fix:** Re-authenticate (`az login`) and verify RBAC on the Cognitive Services account/resource group.
+
+#### `HttpResponseError` with status `404`
+**Cause:** Account or resource group was not found in the active subscription/context.  
+**Fix:** Confirm subscription, account name, and resource group. Set subscription explicitly if needed (`az account set --subscription <id>`).
+
+#### `HttpResponseError` with status `409`
+**Cause:** Resource conflict (for example, compute name already exists or operation conflicts with current resource state).  
+**Fix:** Use a unique compute name or wait for the in-flight operation to finish, then retry.
+
+### Show / List (`compute show`, `compute list`)
+
+#### `HttpResponseError` with status `404`
+**Cause:** The compute (for `show`) or account context does not exist in the specified resource group/subscription.  
+**Fix:** Verify account, RG, and compute name, then retry.
+
+#### `HttpResponseError` with status `401` or `403`
+**Cause:** Insufficient access to read compute resources.  
+**Fix:** Ensure your identity has read permissions on the account.
+
+### Delete (`compute delete`)
+
+#### Command appears to "hang" until completion
+**Cause:** Delete is a long-running ARM operation and waits by default.  
+**Fix:** Use `--no-wait` if you want immediate return and track progress separately.
+
+#### `HttpResponseError` with status `404`
+**Cause:** The compute does not exist (already deleted or wrong name/scope).  
+**Fix:** Run `compute list` first to confirm the exact compute name.
+
+#### `HttpResponseError` with status `409`
+**Cause:** Delete is blocked by current resource state or another in-progress operation.  
+**Fix:** Wait and retry.

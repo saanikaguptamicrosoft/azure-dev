@@ -207,6 +207,50 @@ Fix: Treat delete as successful if backend status is 200 and subsequent `get` re
 
 ---
 
+## 7) Foundry Compute in SDK (`azure-mgmt-cognitiveservices`)
+
+Scope for this section is compute operations only:
+- `client.computes.begin_create_or_update(...)`
+- `client.computes.get(...)`
+- `client.computes.list(...)`
+- `client.computes.begin_delete(...)`
+
+### Client-side call-shape failures
+
+#### `TypeError` for missing required positional arguments
+Cause: Required method arguments were not provided (for example `resource_group_name`, `account_name`, `compute_name`, or `resource` for create).  
+Fix: Pass all required parameters explicitly.
+
+#### `ValueError` / API-version validation failure
+Cause: A compute operation is called with an unsupported API version for that method signature.  
+Fix: Use the SDK default API version for the package build, or ensure the explicit API version supports compute operations.
+
+### ARM/service failures surfaced by SDK
+
+#### `ClientAuthenticationError` (`401`)
+Cause: Authentication failed for ARM calls.  
+Fix: Refresh credentials/token and verify tenant/subscription context.
+
+#### `ResourceNotFoundError` (`404`)
+Cause: Resource group, account, or compute name is wrong (or already deleted).  
+Fix: Verify all resource IDs/names and active subscription.
+
+#### `ResourceExistsError` (`409`)
+Cause: Conflict with current resource state (for example, existing compute with same name, or concurrent operation).  
+Fix: Use a unique name for create, or wait for active operations to complete before retrying.
+
+#### `HttpResponseError` (other status codes)
+Cause: Backend validation or transient platform failure not mapped to a specialized exception.  
+Fix: Capture full error body and request/correlation IDs; retry for transient failures, otherwise correct payload values and retry.
+
+### Compute create payload validation tips (most common 400 causes)
+
+#### `HttpResponseError` (`400 Bad Request`) during `begin_create_or_update`
+Cause: Invalid compute payload (common: unsupported VM size, invalid pool shape, invalid node count, unsupported vm priority, or invalid location).  
+Fix: Validate `Compute` + `ComputeProperties` + `Pool` values against supported region/SKU constraints, then resubmit.
+
+---
+
 ## Recommended support payload
 
 When escalating, include:
