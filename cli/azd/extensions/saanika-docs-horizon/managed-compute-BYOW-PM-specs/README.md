@@ -1,0 +1,1 @@
+Location: https://github.com/coreai-microsoft/foundrysdk_specs/blob/BYOW/specs/managed-compute/BYOW/spec-models-register-local.md

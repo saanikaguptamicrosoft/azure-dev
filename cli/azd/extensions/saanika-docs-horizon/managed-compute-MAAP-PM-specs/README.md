@@ -1,0 +1,1 @@
+Location: https://github.com/coreai-microsoft/foundrysdk_specs/blob/4723f9e3be55e041210b8363bb65ed56212da070/specs/managed-compute/spec-custom-models-create-local.md
