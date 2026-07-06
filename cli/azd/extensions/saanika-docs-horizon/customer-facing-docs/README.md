@@ -5,6 +5,6 @@ Training
 
 MAAP/BYOW
 - Managed Compute Deplpoyment: https://devblogs.microsoft.com/foundry/announcing-foundry-managed-compute/
-- Managed Compute: https://learn.microsoft.com/en-us/azure/foundry/concepts/managed-compute-overview
+- Concepts doc Managed Compute: https://learn.microsoft.com/en-us/azure/foundry/concepts/managed-compute-overview
 - Deploy using Deployment Templates: https://learn.microsoft.com/en-us/azure/machine-learning/how-to-deploy-models-deployment-template?view=azureml-api-2&tabs=rest
-- Deploy using Managed Compute: https://learn.microsoft.com/en-us/azure/foundry/how-to/deploy-models-managed?tabs=openai-entra&pivots=ai-foundry-portal
+- How to doc Deploy using Managed Compute: https://learn.microsoft.com/en-us/azure/foundry/how-to/deploy-models-managed?tabs=openai-entra&pivots=ai-foundry-portal
